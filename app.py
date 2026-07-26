@@ -677,6 +677,135 @@ def optimize_setpoints(current_row, target_bw):
 
     return round(best_stock, 2), round(best_steam, 2)
 
+
+# ── Hackathon Requirement 3: Stabilization Time Estimator ──────────────────
+def estimate_stabilization_time(base_feat, opt_stock, opt_steam, cur_pred_bw, target_bw):
+    """
+    Forward-simulates process response using a 1st-order actuator lag model (τ=4 min)
+    to estimate minutes until BW returns within ±2.5% of target.
+
+    Two trajectories are computed:
+      • WITHOUT intervention : natural process drift (3% deviation decay per step)
+      • WITH AI setpoints    : XGBoost surrogate with progressively applied setpoints
+
+    Returns (steps_no_action, steps_with_action) — both capped at 30 min.
+    """
+    threshold = target_bw * 0.025      # absolute 2.5% band
+    cur_stock = base_feat['stock_flow']
+    cur_steam = base_feat['steam_pressure']
+    TAU = 4.0                           # actuator response time constant (minutes)
+    MAX_STEPS = 30
+
+    steps_no_action   = MAX_STEPS
+    steps_with_action = MAX_STEPS
+
+    for step in range(1, MAX_STEPS + 1):
+
+        # ── Without intervention: natural exponential drift back toward target ──
+        # Process inertia causes slow self-correction; 3 % decay per minute is
+        # representative of a paper machine without active control.
+        if steps_no_action == MAX_STEPS:
+            natural_decay = 0.97 ** step
+            bw_no_act = target_bw + (cur_pred_bw - target_bw) * natural_decay
+            if abs(bw_no_act - target_bw) <= threshold:
+                steps_no_action = step
+
+        # ── With AI setpoints: 1st-order actuator response ─────────────────────
+        # Control valves / stock headbox respond with characteristic lag τ.
+        # blend(t) = 1 - e^(-t/τ) models how quickly the new setpoint is achieved.
+        if steps_with_action == MAX_STEPS:
+            blend = 1.0 - np.exp(-step / TAU)
+            feat_act = base_feat.copy()
+            feat_act['stock_flow']     = cur_stock + blend * (opt_stock - cur_stock)
+            feat_act['steam_pressure'] = cur_steam + blend * (opt_steam - cur_steam)
+
+            # Propagate to lag features (process dead-time)
+            s_ratio  = feat_act['stock_flow']     / (cur_stock + 1e-9)
+            sp_ratio = feat_act['steam_pressure'] / (cur_steam + 1e-9)
+            for lag in ['lag3', 'lag5']:
+                sf_lag = f'stock_flow_{lag}'
+                sp_lag = f'steam_pressure_{lag}'
+                if sf_lag in feat_act.index:
+                    feat_act[sf_lag] = base_feat[sf_lag] * s_ratio
+                if sp_lag in feat_act.index:
+                    feat_act[sp_lag] = base_feat[sp_lag] * sp_ratio
+            if 'stock_flow_roc'     in feat_act.index:
+                feat_act['stock_flow_roc']     = feat_act['stock_flow']     - cur_stock
+            if 'steam_pressure_roc' in feat_act.index:
+                feat_act['steam_pressure_roc'] = feat_act['steam_pressure'] - cur_steam
+
+            bw_act = model.predict(pd.DataFrame([feat_act]))[0]
+            if abs(bw_act - target_bw) <= threshold:
+                steps_with_action = step
+
+        if steps_no_action < MAX_STEPS and steps_with_action < MAX_STEPS:
+            break
+
+    return steps_no_action, steps_with_action
+
+
+# ── Hackathon Requirement 4: Recommendation Rationale Generator ────────────
+def get_recommendation_rationale(shap_row, feature_names, opt_stock, opt_steam,
+                                  cur_stock, cur_steam, cur_pred_bw, target_bw):
+    """
+    Produces a structured natural-language rationale explaining:
+      (a) WHY the deviation is happening  (top SHAP driver)
+      (b) WHY these specific setpoints were recommended  (corrective direction)
+      (c) What outcome is expected  (predicted BW correction)
+
+    Returns a dict used to render the rationale card in the UI.
+    """
+    vals  = shap_row.values
+    names = list(feature_names)
+    bw_error = cur_pred_bw - target_bw
+
+    # Identify the feature most responsible for the off-spec deviation
+    # (largest SHAP value in the direction of the error)
+    if bw_error > 0:
+        # BW forecast too HIGH → find strongest positive contributor
+        top_idx = int(np.argmax(vals))
+    else:
+        # BW forecast too LOW  → find strongest negative contributor
+        top_idx = int(np.argmin(vals))
+
+    top_feature = names[top_idx]
+    top_shap    = float(vals[top_idx])
+
+    # Identify the second-most influential driver for depth
+    abs_vals    = np.abs(vals)
+    abs_vals[top_idx] = -1
+    second_idx  = int(np.argmax(abs_vals))
+    second_feat = names[second_idx]
+    second_shap = float(vals[second_idx])
+
+    direction       = "above" if bw_error > 0 else "below"
+    action_verb     = "reduce" if bw_error > 0 else "increase"
+    stock_delta     = opt_stock - cur_stock
+    steam_delta     = opt_steam - cur_steam
+    stock_delta_pct = stock_delta / (cur_stock + 1e-9) * 100
+    steam_delta_pct = steam_delta / (cur_steam + 1e-9) * 100
+
+    # Identify dominant lever (whichever setpoint changed more in % terms)
+    dominant_lever = "Stock Flow" if abs(stock_delta_pct) >= abs(steam_delta_pct) else "Steam Pressure"
+    dominant_delta = stock_delta_pct if dominant_lever == "Stock Flow" else steam_delta_pct
+    dominant_dir   = "decrease" if dominant_delta < 0 else "increase"
+
+    return {
+        "top_feature":    top_feature,
+        "top_shap":       top_shap,
+        "second_feature": second_feat,
+        "second_shap":    second_shap,
+        "direction":      direction,
+        "action_verb":    action_verb,
+        "bw_error":       bw_error,
+        "stock_delta":    stock_delta,
+        "steam_delta":    steam_delta,
+        "stock_delta_pct": stock_delta_pct,
+        "steam_delta_pct": steam_delta_pct,
+        "dominant_lever":  dominant_lever,
+        "dominant_dir":    dominant_dir,
+    }
+
 # --- DASHBOARD UI LAYOUT ---
 st.title("⚡ Honeywell QCS: Predictive Grade Change Intelligence")
 st.caption("Machine Direction (MD) Advanced Advisory System | Edge-Deployed Surrogates & XAI")
@@ -732,43 +861,145 @@ with col_left:
 
 with col_right:
     st.subheader("🤖 Advisory & Optimization Engine")
-    
+
     if deviation_pct > 2.5:
-        st.markdown("""
+        # ── Requirement 1: Off-spec prediction alert ────────────────────────
+        st.markdown(f"""
         <div class="alert-box">
             <b>⚠️ OFF-SPEC RISK DETECTED</b><br>
-            Basis Weight forecast exceeds 2.5% tolerance limit in T+5 minutes.
+            T+5 forecast: <b>{predicted_future_bw:.2f} g/m²</b> —
+            deviates <b>{deviation_pct:.2f}%</b> from target <b>{actual_target:.2f} g/m²</b>.<br>
+            Predicted quality breach in <b>5 minutes</b> without corrective action.
         </div>
         """, unsafe_allow_html=True)
-        
-        # Trigger Inverse Model Optimizer
+
+        # ── Requirement 2: Corrective setpoint recommendations ─────────────
         opt_stock, opt_steam = optimize_setpoints(current_sample, actual_target)
-        
-        st.write("### Recommended Setpoint Adjustments:")
-        st.write(f"• **Thick Stock Flow:** `{current_sample['stock_flow']}` ➔ **`{opt_stock}`**")
-        st.write(f"• **Dryer Steam Pressure:** `{current_sample['steam_pressure']}` ➔ **`{opt_steam}`**")
-        st.caption("Optimization Source: Inverse XGBoost Constraint Solver")
-        
-        col_btn1, col_btn2 = st.columns(2)
-        if col_btn1.button("✅ Accept Advisory"):
-            log_feedback(current_bw, predicted_future_bw, actual_target, opt_stock, opt_steam, "ACCEPTED")
-            st.success("Setpoints dispatched to QCS Controller. Logged in DB.")
-            
-        if col_btn2.button("❌ Reject Advisory"):
-            log_feedback(current_bw, predicted_future_bw, actual_target, opt_stock, opt_steam, "REJECTED")
-            st.error("Advisory rejected. Feedback stored for retraining.")
+
+        cur_stock = float(current_sample['stock_flow'])
+        cur_steam = float(current_sample['steam_pressure'])
+
+        st.markdown("**📐 Requirement 2 — Corrective Setpoints:**")
+        r2a, r2b = st.columns(2)
+        r2a.metric(
+            "Thick Stock Flow",
+            f"{opt_stock} L/min",
+            delta=f"{opt_stock - cur_stock:+.2f}",
+            delta_color="normal",
+        )
+        r2b.metric(
+            "Dryer Steam Pressure",
+            f"{opt_steam} kPa",
+            delta=f"{opt_steam - cur_steam:+.2f}",
+            delta_color="inverse",
+        )
+        st.caption("Source: Inverse XGBoost Constraint Solver — 121-point grid search with lag propagation")
+
+        # ── Requirement 3: Stabilization time reduction ────────────────────
+        base_feat = current_sample[feature_cols].copy()
+        t_no_act, t_with_act = estimate_stabilization_time(
+            base_feat, opt_stock, opt_steam, predicted_future_bw, actual_target
+        )
+        t_saved = max(0, t_no_act - t_with_act)
+
+        st.markdown("**⏱️ Requirement 3 — Stabilization Time:**")
+        r3a, r3b, r3c = st.columns(3)
+        r3a.metric("Without AI",   f"{t_no_act} min",  help="Estimated minutes to return within ±2.5% via natural process drift only")
+        r3b.metric("With AI",      f"{t_with_act} min", help="Estimated minutes when recommended setpoints are applied immediately")
+        r3c.metric("⚡ Time Saved", f"{t_saved} min",
+                   delta=f"-{t_saved} min",
+                   delta_color="inverse" if t_saved > 0 else "off",
+                   help="Reduction in off-spec exposure time achieved by accepting the recommendation")
+
+        # ── Requirement 4: Rationale behind the recommendation ─────────────
+        shap_now   = explainer(current_X)
+        rationale  = get_recommendation_rationale(
+            shap_now[0], current_X.columns,
+            opt_stock, opt_steam,
+            cur_stock, cur_steam,
+            predicted_future_bw, actual_target,
+        )
+
+        st.markdown("**🧠 Requirement 4 — Recommendation Rationale:**")
+        st.markdown(f"""
+        <div style='background:#1a2332;border-left:3px solid #58a6ff;
+                    border-radius:6px;padding:12px 16px;font-size:0.82rem;
+                    color:#c9d1d9;margin:6px 0;line-height:1.7'>
+            <b style='color:#58a6ff'>Root cause:</b>
+            <code>{rationale['top_feature']}</code> is the primary driver
+            pushing the T+5 BW forecast <b>{rationale['direction']} target</b>
+            (SHAP contribution: <b>{rationale['top_shap']:+.3f} g/m²</b>).
+            Secondary driver: <code>{rationale['second_feature']}</code>
+            ({rationale['second_shap']:+.3f} g/m²).<br><br>
+            <b style='color:#58a6ff'>Why these setpoints:</b>
+            The inverse optimizer selected a <b>{rationale['dominant_dir']}
+            in {rationale['dominant_lever']}</b>
+            ({rationale['stock_delta_pct']:+.1f}% stock,
+            {rationale['steam_delta_pct']:+.1f}% steam) because this combination
+            minimises the predicted BW error while keeping actuator movement within
+            safe operating bounds (control-effort penalty = 0.01×Δ²).
+            The model surrogate predicts this will
+            <b>{rationale['action_verb']} basis weight</b> back toward
+            <b>{actual_target:.2f} g/m²</b> within ≈{t_with_act} min.
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Store values in session_state so buttons outside this column can use them
+        st.session_state['_advisory'] = dict(
+            opt_stock=opt_stock, opt_steam=opt_steam,
+            t_with_act=t_with_act, t_saved=t_saved,
+            current_bw=current_bw, predicted_future_bw=predicted_future_bw,
+            actual_target=actual_target, active=True,
+        )
+
     else:
-        st.markdown("""
+        st.markdown(f"""
         <div class="success-box">
-            <b>✅ SYSTEM OPTIMAL</b><br>
-            Process trajectory is within 2.5% quality bounds. No intervention required.
+            <b>✅ SYSTEM NOMINAL — All Requirements Met</b><br>
+            T+5 forecast <b>{predicted_future_bw:.2f} g/m²</b> is within the
+            ±2.5% quality band of target <b>{actual_target:.2f} g/m²</b>
+            (deviation: {deviation_pct:.2f}%). No corrective action required.
         </div>
         """, unsafe_allow_html=True)
 
 st.markdown("---")
 
+# ══════════════════════════════════════════════════════════════════════════════
+# OPERATOR DECISION PANEL — full width, always visible when alert is active
+# ══════════════════════════════════════════════════════════════════════════════
+adv = st.session_state.get('_advisory', {})
+if adv.get('active'):
+    st.markdown("### 🎛️ Operator Decision Panel")
+    st.markdown(
+        f"Advisory active — T+5 forecast: **{adv['predicted_future_bw']:.2f} g/m²** "
+        f"| Target: **{adv['actual_target']:.2f} g/m²** "
+        f"| Est. stabilization with AI: **{adv['t_with_act']} min** (saves **{adv['t_saved']} min**)"
+    )
+    btn_col1, btn_col2, _ = st.columns([2, 2, 4])
+
+    if btn_col1.button("✅  Accept Advisory", type="primary", use_container_width=True):
+        log_feedback(
+            adv['current_bw'], adv['predicted_future_bw'], adv['actual_target'],
+            adv['opt_stock'], adv['opt_steam'], "ACCEPTED",
+        )
+        st.success(
+            f"✅ **Setpoints accepted & dispatched to QCS Controller.**  \n"
+            f"Stock Flow → **{adv['opt_stock']} L/min** | Steam → **{adv['opt_steam']} kPa**  \n"
+            f"Estimated stabilization in **{adv['t_with_act']} min** (saves {adv['t_saved']} min). Logged to DB."
+        )
+
+    if btn_col2.button("❌  Reject Advisory", use_container_width=True):
+        log_feedback(
+            adv['current_bw'], adv['predicted_future_bw'], adv['actual_target'],
+            adv['opt_stock'], adv['opt_steam'], "REJECTED",
+        )
+        st.error("❌ **Advisory rejected.** No setpoint change applied. Feedback stored for model retraining.")
+
+st.markdown("---")
+
 # Explainability & Diagnostic Section
 col_shap, col_corr = st.columns(2)
+
 
 with col_shap:
     st.subheader("🔍 Rationale (SHAP Feature Attribution)")
