@@ -101,6 +101,274 @@ Every recommendation can either be accepted or rejected by the operator. These d
 - Support faster and safer grade changes
 - Complement existing Honeywell Quality Control Systems
 
+
+
+# Project Setup Guide
+
+## Prerequisites
+
+Before running the project, ensure the following are installed on your system:
+
+- Python 3.10 or above (Recommended: Python 3.12)
+- Git
+- pip (comes with Python)
+- A modern web browser (Chrome, Edge, Firefox, or Safari)
+
+Verify your installation:
+
+```bash
+python --version
+pip --version
+git --version
+```
+
+---
+
+# Setup for macOS
+
+## Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/Pradhyumn72/Honeywell_Hackathon_Solution_Grade_Change_Intelligence_in_Paper_Making_Process.git
+
+cd Honeywell_Hackathon_Solution_Grade_Change_Intelligence_in_Paper_Making_Process
+```
+
+## Step 2: Create a Virtual Environment
+
+```bash
+python3 -m venv venv
+```
+
+## Step 3: Activate the Virtual Environment
+
+```bash
+source venv/bin/activate
+```
+
+You should now see:
+
+```
+(venv)
+```
+
+at the beginning of your terminal.
+
+## Step 4: Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+## Step 5: Generate the Dataset
+
+```bash
+python adapt_real_data.py
+```
+
+## Step 6: Initialize the Database
+
+```bash
+python database.py
+```
+
+## Step 7: Launch the Dashboard
+
+```bash
+streamlit run app.py
+```
+
+Open your browser and visit:
+
+```
+http://localhost:8501
+```
+
+---
+
+# Setup for Windows
+
+## Step 1: Clone the Repository
+
+Open **Command Prompt** or **PowerShell**.
+
+```powershell
+git clone https://github.com/Pradhyumn72/Honeywell_Hackathon_Solution_Grade_Change_Intelligence_in_Paper_Making_Process.git
+
+cd Honeywell_Hackathon_Solution_Grade_Change_Intelligence_in_Paper_Making_Process
+```
+
+## Step 2: Create a Virtual Environment
+
+```powershell
+python -m venv venv
+```
+
+## Step 3: Activate the Virtual Environment
+
+### Command Prompt
+
+```cmd
+venv\Scripts\activate
+```
+
+### PowerShell
+
+```powershell
+venv\Scripts\Activate.ps1
+```
+
+## Step 4: Install Dependencies
+
+```powershell
+pip install -r requirements.txt
+```
+
+## Step 5: Generate the Dataset
+
+```powershell
+python adapt_real_data.py
+```
+
+## Step 6: Initialize the Database
+
+```powershell
+python database.py
+```
+
+## Step 7: Launch the Dashboard
+
+```powershell
+streamlit run app.py
+```
+
+Open your browser and navigate to:
+
+```
+http://localhost:8501
+```
+
+---
+
+# Project Structure
+
+```
+Honeywell_Hackathon_Solution/
+│
+├── app.py                     # Main Streamlit Dashboard
+├── model.py                   # XGBoost Forecasting Model
+├── optimizer.py               # AI Optimization Engine
+├── database.py                # SQLite Database Initialization
+├── adapt_real_data.py         # Dataset Generation & Preprocessing
+├── requirements.txt           # Python Dependencies
+├── operator_feedback.db       # SQLite Database (Generated)
+├── data/
+│   ├── processed_dataset.csv
+│   └── raw_dataset.csv
+├── models/
+│   └── xgboost_model.pkl
+├── assets/
+│   ├── dashboard.png
+│   └── architecture.png
+└── README.md
+```
+
+---
+
+# Installing Dependencies Manually (Optional)
+
+If `requirements.txt` is unavailable, install the required packages manually:
+
+```bash
+pip install streamlit
+pip install pandas
+pip install numpy
+pip install matplotlib
+pip install plotly
+pip install scikit-learn
+pip install xgboost
+pip install shap
+pip install joblib
+```
+
+---
+
+# Verifying the Installation
+
+Run:
+
+```bash
+streamlit run app.py
+```
+
+If everything is configured correctly, the dashboard should open automatically in your default browser at:
+
+```
+http://localhost:8501
+```
+
+You should be able to:
+
+- View live process variables
+- Generate process deviation predictions
+- Receive AI-based advisory recommendations
+- Visualize SHAP explanations
+- Log operator feedback into SQLite
+
+---
+
+# Common Issues
+
+## ModuleNotFoundError
+
+Install the required packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## streamlit: command not found
+
+Run:
+
+```bash
+python -m streamlit run app.py
+```
+
+---
+
+## Port 8501 Already in Use
+
+Launch Streamlit on another port:
+
+```bash
+streamlit run app.py --server.port 8502
+```
+
+---
+
+## Virtual Environment Not Activating (Windows)
+
+If PowerShell blocks activation, run:
+
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+Restart PowerShell and activate the virtual environment again.
+
+---
+
+# Deactivate the Virtual Environment
+
+When you're done, run:
+
+```bash
+deactivate
+```
+
 ---
 
 ## Author
