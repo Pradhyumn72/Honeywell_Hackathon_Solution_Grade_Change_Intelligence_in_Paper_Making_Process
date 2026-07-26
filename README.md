@@ -1,5 +1,5 @@
 
-# 🏭 Grade-Change Intelligence & Predictive Advisory (GCIPA) System
+# Grade-Change Intelligence & Predictive Advisory (GCIPA) System
 
 **Honeywell Hackathon Solution: AI-Driven Grade Change Advisory System for Paper Manufacturing**
 
@@ -10,7 +10,7 @@
 
 ---
 
-## 📌 Problem Statement
+## Problem Statement
 
 During a paper machine grade change, multiple process variables such as stock flow, steam pressure, machine speed, and dryer conditions must be adjusted simultaneously. Because of complex nonlinear process interactions and thermal delays, the machine can temporarily deviate from its desired operating specifications, resulting in off-spec paper production, increased waste, reduced productivity, and inconsistent product quality.
 
@@ -20,7 +20,7 @@ Honeywell's challenge is to develop an intelligent automatic grade change system
 
 ---
 
-## 💡 Our Solution
+## Our Solution
 
 The **Grade-Change Intelligence & Predictive Advisory (GCIPA) System** is an edge-deployable, AI-driven advisory platform that works alongside Honeywell's existing Quality Control System rather than replacing it.
 
@@ -32,7 +32,7 @@ The complete solution runs entirely on an edge computer without requiring cloud 
 
 ---
 
-## 🏗 Core Architecture
+## Core Architecture
 
 ### 1)Predictive Time-Series Forecasting
 
