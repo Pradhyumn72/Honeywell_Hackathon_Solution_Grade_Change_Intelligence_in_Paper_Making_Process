@@ -1,0 +1,17 @@
+# Virtual Environment (DO NOT UPLOAD)
+myenv/
+venv/
+.venv/
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# macOS junk files
+.DS_Store
+
+# Streamlit local settings
+.streamlit/
+
+# Local databases (Optional: keep or ignore)
+*.db
