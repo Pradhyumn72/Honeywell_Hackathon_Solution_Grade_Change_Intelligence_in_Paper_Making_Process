@@ -837,27 +837,47 @@ col_left, col_right = st.columns([2, 1])
 
 with col_left:
     st.subheader("📈 Machine Direction Trajectory & Predictive Horizon")
-    
+
     window_df = df.iloc[max(0, time_idx-60):min(len(df), time_idx+20)].copy()
-    
+
+    # Parse timestamp strings → datetime so matplotlib can format them properly
+    import matplotlib.dates as mdates
+    window_df['ts_dt'] = pd.to_datetime(window_df['timestamp'])
+    current_ts_dt      = pd.to_datetime(current_sample['timestamp'])
+    forecast_ts_dt     = pd.to_datetime(df.iloc[min(len(df)-1, time_idx+5)]['timestamp'])
+
     fig, ax = plt.subplots(figsize=(10, 4.2))
-    ax.plot(window_df['timestamp'], window_df['basis_weight'], label="Actual Basis Weight", color="#00D4B1", lw=2)
-    ax.plot(window_df['timestamp'], window_df['recipe_target_bw'], label="Recipe Target", color="#FFFFFF", linestyle="--", alpha=0.7)
-    
-    # Upper/Lower 2.5% Bounds
-    ax.fill_between(window_df['timestamp'], window_df['recipe_target_bw']*1.025, window_df['recipe_target_bw']*0.975, color="#00D4B1", alpha=0.1, label="±2.5% Spec Band")
-    
-    # Highlight Current Step & Forecast Step
-    ax.axvline(current_sample['timestamp'], color="#FFCC00", linestyle=":", label="Current Time (t)")
-    ax.scatter(df.iloc[min(len(df)-1, time_idx+5)]['timestamp'], predicted_future_bw, color="#FF4B4B", s=80, zorder=5, label="Forecast (t+5)")
-    
+    ax.plot(window_df['ts_dt'], window_df['basis_weight'],
+            label="Actual Basis Weight", color="#00D4B1", lw=2)
+    ax.plot(window_df['ts_dt'], window_df['recipe_target_bw'],
+            label="Recipe Target", color="#FFFFFF", linestyle="--", alpha=0.7)
+
+    # ±2.5% Spec band
+    ax.fill_between(window_df['ts_dt'],
+                    window_df['recipe_target_bw'] * 1.025,
+                    window_df['recipe_target_bw'] * 0.975,
+                    color="#00D4B1", alpha=0.1, label="±2.5% Spec Band")
+
+    # Current time marker & T+5 forecast dot
+    ax.axvline(current_ts_dt, color="#FFCC00", linestyle=":", label="Current Time (t)")
+    ax.scatter(forecast_ts_dt, predicted_future_bw,
+               color="#FF4B4B", s=80, zorder=5, label="Forecast (t+5)")
+
+    # ── X-axis: clean HH:MM labels, max 8 ticks, rotated 30° ───────────────
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator(maxticks=8))
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+    plt.setp(ax.xaxis.get_majorticklabels(), rotation=30, ha="right", fontsize=8)
+
+    ax.set_ylabel("Basis Weight (g/m²)", color="white", fontsize=9)
     ax.set_facecolor("#1E232A")
     fig.patch.set_facecolor("#0E1117")
     ax.tick_params(colors="white")
     ax.xaxis.label.set_color("white")
     ax.yaxis.label.set_color("white")
-    ax.legend(facecolor="#1E232A", labelcolor="white")
+    ax.legend(facecolor="#1E232A", labelcolor="white", fontsize=8)
+    fig.tight_layout()
     st.pyplot(fig)
+
 
 with col_right:
     st.subheader("🤖 Advisory & Optimization Engine")
